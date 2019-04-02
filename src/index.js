@@ -12,6 +12,12 @@
 export type BatchLoadFn<K, V> =
   (keys: $ReadOnlyArray<K>) => Promise<$ReadOnlyArray<V | Error>>;
 
+export type CacheHitLogFn<K> = (key: K) => void;
+
+export type CacheMissLogFn<K> = (key: K) => void;
+
+export type CacheSetLogFn<K> = (key: K) => void;
+
 // Optionally turn off batching or caching or provide a cache key function or a
 // custom cache instance.
 export type Options<K, V> = {
@@ -66,7 +72,12 @@ class DataLoader<K, V> {
   /**
    * Loads a key, returning a `Promise` for the value represented by that key.
    */
-  load(key: K): Promise<V> {
+  load(
+    key: K,
+    cacheHitLogFn?: CacheHitLogFn<K>,
+    cacheMissLogFn?: CacheMissLogFn<K>,
+    cacheSetLogFn?: CacheSetLogFn<K>
+  ): Promise<V> {
     if (key === null || key === undefined) {
       throw new TypeError(
         'The loader.load() function must be called with a value,' +
@@ -83,12 +94,18 @@ class DataLoader<K, V> {
 
     // If caching and there is a cache-hit, return cached Promise.
     if (shouldCache) {
+      if (cacheHitLogFn) {
+        cacheHitLogFn(cacheKey);
+      }
       var cachedPromise = this._promiseCache.get(cacheKey);
       if (cachedPromise) {
         return cachedPromise;
       }
     }
 
+    if (cacheMissLogFn) {
+      cacheMissLogFn(cacheKey);
+    }
     // Otherwise, produce a new Promise for this value.
     var promise = new Promise((resolve, reject) => {
       // Enqueue this Promise to be dispatched.
@@ -110,6 +127,9 @@ class DataLoader<K, V> {
 
     // If caching, cache this promise.
     if (shouldCache) {
+      if (cacheSetLogFn) {
+        cacheSetLogFn(cacheKey);
+      }
       this._promiseCache.set(cacheKey, promise);
     }
 
@@ -129,14 +149,22 @@ class DataLoader<K, V> {
    *     ]);
    *
    */
-  loadMany(keys: $ReadOnlyArray<K>): Promise<Array<V>> {
+  loadMany(
+    keys: $ReadOnlyArray<K>,
+    cacheHitLogFn?: CacheHitLogFn<K>,
+    cacheMissLogFn?: CacheMissLogFn<K>,
+    cacheSetLogFn?: CacheSetLogFn<K>
+  ): Promise<Array<V>> {
     if (!Array.isArray(keys)) {
       throw new TypeError(
         'The loader.loadMany() function must be called with Array<key> ' +
         `but got: ${keys}.`
       );
     }
-    return Promise.all(keys.map(key => this.load(key)));
+    return Promise.all(
+      keys.map(
+        key => this.load(key, cacheHitLogFn, cacheMissLogFn, cacheSetLogFn),
+      ));
   }
 
   /**
